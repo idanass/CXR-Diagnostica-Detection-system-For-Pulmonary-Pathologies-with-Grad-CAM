@@ -11,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 
 from gradcam_module.inference import GradCAMInference
 from report.pdf_generator import build_pdf
+from storage.minio_client import upload_xray, upload_report, ensure_buckets
+from mlflow_module.tracker import setup_mlflow, log_prediction
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # ── Startup ─────────────────────────────────────────
 pipeline = None
@@ -21,6 +24,20 @@ async def lifespan(app: FastAPI):
     print("⏳ Loading model...")
     pipeline = GradCAMInference()
     print("✅ Model ready")
+
+    # MinIO buckets
+    try:
+        ensure_buckets()
+        print("✅ MinIO buckets ready")
+    except Exception as e:
+        print(f"⚠️  MinIO not available: {e} — continuing without storage")
+
+    # MLflow
+    try:
+        setup_mlflow()
+    except Exception as e:
+        print(f"⚠️  MLflow not available: {e} — continuing without tracking")
+
     yield
     print("🛑 Shutting down")
 
@@ -31,6 +48,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+Instrumentator().instrument(app).expose(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +58,7 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # ── Routes ───────────────────────────────────────────
 
@@ -79,6 +98,23 @@ async def predict(file: UploadFile = File(...)):
         sorted(results.items(), key=lambda x: x[1]["score"], reverse=True)
     )
 
+    # Save X-ray to MinIO (non-blocking)
+    try:
+        obj_name = upload_xray(image_bytes, file.filename)
+        print(f"📦 X-ray saved to MinIO: {obj_name}")
+    except Exception as e:
+        print(f"⚠️  MinIO upload skipped: {e}")
+        
+    # Log to MLflow
+    try:
+        log_prediction(
+            filename       = file.filename,
+            predictions    = sorted_results,
+            inference_time = elapsed,
+        )
+    except Exception as e:
+        print(f"⚠️  MLflow logging skipped: {e}")
+
     return {
         "filename": file.filename,
         "inference_time_sec": elapsed,
@@ -88,10 +124,6 @@ async def predict(file: UploadFile = File(...)):
 
 @app.post("/report")
 async def generate_report(request: Request):
-    """
-    Accepts JSON body with patient info + predictions + original image.
-    Returns a PDF file.
-    """
     try:
         body = await request.json()
     except Exception:
@@ -111,6 +143,14 @@ async def generate_report(request: Request):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Save PDF to MinIO (non-blocking)
+    try:
+        patient_name = body.get("name", "unknown")
+        obj_name = upload_report(pdf_bytes, patient_name)
+        print(f"📦 Report saved to MinIO: {obj_name}")
+    except Exception as e:
+        print(f"⚠️  MinIO report upload skipped: {e}")
 
     patient_name = body.get("name", "report").replace(" ", "_")
     date_str     = datetime.now().strftime("%Y%m%d_%H%M")
