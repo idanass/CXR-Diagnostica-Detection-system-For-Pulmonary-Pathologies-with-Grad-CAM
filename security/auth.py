@@ -7,7 +7,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHea
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
 # ── Config ───────────────────────────────────────────
+
 SECRET_KEY   = os.getenv("SECRET_KEY", "cxr-diagnostica-secret-key-2026")
 ALGORITHM    = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
@@ -23,16 +26,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-# ── Fake user DB (replace with real DB later) ────────
+# user DB  ────────
 USERS_DB = {
     "admin": {
         "username": "admin",
-        "hashed_password": pwd_context.hash("admin123"),
+        "password": "admin123",
         "role": "admin"
     },
     "doctor": {
         "username": "doctor",
-        "hashed_password": pwd_context.hash("doctor123"),
+        "password": "doctor123",
         "role": "doctor"
     }
 }
@@ -61,7 +64,7 @@ def authenticate_user(username: str, password: str):
     user = USERS_DB.get(username)
     if not user:
         return None
-    if not pwd_context.verify(password, user["hashed_password"]):
+    if password != user["password"]:
         return None
     return user
 

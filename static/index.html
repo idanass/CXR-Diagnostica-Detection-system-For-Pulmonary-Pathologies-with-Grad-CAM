@@ -323,6 +323,14 @@ function handleFile(file) {
 // ── Analyze ──
 btnAn.addEventListener('click', async () => {
   if (!selectedFile) return;
+
+  // Get token first
+  const tokenRes = await fetch('/login?username=doctor&password=doctor123', {
+    method: 'POST'
+  });
+  const tokenData = await tokenRes.json();
+  const token = tokenData.access_token;
+
   document.getElementById('loader').style.display = 'block';
   document.getElementById('results-section').style.display = 'none';
   btnAn.disabled = true;
@@ -332,7 +340,11 @@ btnAn.addEventListener('click', async () => {
   form.append('file', selectedFile);
 
   try {
-    const res  = await fetch('/predict', { method: 'POST', body: form });
+    const res = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: form
+    });
     const data = await res.json();
     renderResults(data);
   } catch(err) {
@@ -419,6 +431,13 @@ async function exportPDF() {
   const btn = document.getElementById('btn-pdf');
   btn.textContent = '⏳ Generating...';
 
+  // Get token
+  const tokenRes = await fetch('/login?username=doctor&password=doctor123', {
+    method: 'POST'
+  });
+  const tokenData = await tokenRes.json();
+  const token = tokenData.access_token;
+
   const payload = {
     name:        document.getElementById('p-name').value    || 'N/A',
     age:         document.getElementById('p-age').value     || 'N/A',
@@ -432,9 +451,12 @@ async function exportPDF() {
   };
 
   try {
-    const res  = await fetch('/report', {
+    const res = await fetch('/report', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(payload)
     });
     const blob = await res.blob();
